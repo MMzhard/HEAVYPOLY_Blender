@@ -163,25 +163,12 @@ def add_smooth_by_angle(obj):
         state = "enabled" if existing_modifier.show_viewport else "disabled"
         print(f"'Smooth by Angle' modifier toggled {state} on object '{obj.name}'.")
     else:
-        # Add the "Smooth by Angle" modifier
+        # Add the "Smooth by Angle" modifier via Blender's built-in operator
         bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.modifier_add_node_group(
-            asset_library_type='ESSENTIALS',
-            asset_library_identifier="",
-            relative_asset_identifier="geometry_nodes\\smooth_by_angle.blend\\NodeTree\\Smooth by Angle"
-        )
-
-        # Rename the modifier to "Smooth by Angle" explicitly
-        modifier = obj.modifiers[-1]  # The most recently added modifier
-        modifier.name = "Smooth by Angle"
-
-        # Configure the modifier
-        modifier["Input_1"] = angle
-        modifier["Socket_1"] = True
-        obj.data.update()
+        bpy.ops.object.shade_auto_smooth(angle=angle, use_auto_smooth=True)
 
         print(f"'Smooth by Angle' modifier added to object '{obj.name}'.")
-    bpy.context.view_layer.objects.active = obj
+        bpy.context.view_layer.objects.active = obj
 
 # Operator to handle adding the Normal modifier
 class HP_OT_add_normal_modifier(bpy.types.Operator):
