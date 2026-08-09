@@ -3,7 +3,7 @@ bl_info = {
     "description": "Shading Modes",
     "author": "Vaughan Ling",
     "version": (0, 1, 0),
-    "blender": (2, 80, 0),
+    "blender": (5, 2, 0),
     "location": "",
     "warning": "",
     "wiki_url": "",
@@ -65,7 +65,7 @@ class HP_MT_pie_shading(Menu):
         box.prop(overlay, "show_extras", text="EXTRAS")
         box.prop(context.scene.eevee, "use_soft_shadows", text="SOFT SHADOWS")
         box.prop(overlay, "show_cursor", text="3D CURSOR")
-        box.operator("object.toggle_shade_smooth", text = 'Toggle Smooth / Flat')
+        box.operator("object.toggle_shade_smooth", text = 'Shade Smooth')
 
 
 class HP_OT_shading_wire(bpy.types.Operator):
@@ -127,8 +127,8 @@ class HP_OT_shading_bg_wire(bpy.types.Operator):
 
 class HP_OT_toggle_shade_smooth(bpy.types.Operator):
     bl_idname = "object.toggle_shade_smooth"
-    bl_label = "Toggle Shade Smooth"
-    bl_description = "Toggle between Shade Smooth and Shade Flat on selected mesh objects"
+    bl_label = "Shade Smooth"
+    bl_description = "Toggle Shade Smooth with Smooth by Angle modifier and set Ignore Sharpness"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -137,21 +137,76 @@ class HP_OT_toggle_shade_smooth(bpy.types.Operator):
             self.report({'WARNING'}, "No mesh objects selected.")
             return {'CANCELLED'}
 
-        # 選択されたメッシュのいずれかにスムーズ設定されている面があるか確認
-        is_smooth = any(
-            poly.use_smooth
-            for obj in selected_meshes
-            for poly in obj.data.polygons
-        )
+        for obj in selected_meshes:
+            # 既存の "Smooth by Angle" モディファイアを検索
+            mod = next(
+                (m for m in obj.modifiers if m.type == 'NODES' and m.node_group and "Smooth by Angle" in m.node_group.name),
+                None
+            )
 
-        # スムーズがかかっていればフラットに、フラットであればスムーズにトグル切り替え
-        if is_smooth:
-            bpy.ops.object.shade_flat()
-        else:
-            bpy.ops.object.shade_smooth()
+            # すでにモディファイアが存在していれば削除（トグルオフ）
+            if mod:
+                obj.modifiers.remove(mod)
+                context.view_layer.objects.active = obj
+                bpy.ops.object.shade_flat()
+            else:
+                # 1. ベースメッシュは Flat に維持
+                context.view_layer.objects.active = obj
+                bpy.ops.object.shade_flat()
 
+                # 2. Smooth by Angle モディファイアを追加
+                try:
+                    bpy.ops.object.modifier_add_node_group(
+                        asset_library_type='ESSENTIALS',
+                        asset_library_identifier="",
+                        relative_asset_identifier="nodes\\geometry_nodes_essentials.blend\\NodeTree\\Smooth by Angle"
+                    )
+                except Exception:
+                    try:
+                        bpy.ops.object.modifier_add_node_group(
+                            asset_library_type='ESSENTIALS',
+                            asset_library_identifier="",
+                            relative_asset_identifier="geometry_nodes\\smooth_by_angle.blend\\NodeTree\\Smooth by Angle"
+                        )
+                    except Exception as e:
+                        self.report({'WARNING'}, f"Failed to add Smooth by Angle modifier: {e}")
+                        continue
+
+                # 3. 追加されたモディファイアを取得
+                mod = next(
+                    (m for m in obj.modifiers if m.type == 'NODES' and m.node_group and "Smooth by Angle" in m.node_group.name),
+                    None
+                )
+
+                # 4. "Ignore Sharpness" (シャープを無視) を True に設定
+                if mod:
+                    socket_id = None
+                    if mod.node_group and hasattr(mod.node_group, "interface"):
+                        for item in mod.node_group.interface.items_tree:
+                            if getattr(item, "item_type", "") == 'SOCKET' and getattr(item, "in_out", "") == 'INPUT':
+                                if "ignore" in item.name.lower() or "シャープ" in item.name:
+                                    socket_id = item.identifier
+                                    break
+                    
+                    if not socket_id:
+                        socket_id = "Socket_1"
+
+                    try:
+                        mod.properties.inputs[socket_id]["value"] = True
+                    except Exception:
+                        try:
+                            mod.properties["inputs"][socket_id]["value"] = True
+                        except Exception:
+                            pass
+
+                    # 5. ビューポート描画の即時反映処理
+                    mod.show_viewport = False
+                    mod.show_viewport = True
+                    obj.update_tag()
+
+        context.view_layer.update()
         return {'FINISHED'}
-    
+
 classes = (
     HP_MT_pie_shading,
     HP_OT_shading_wire,
